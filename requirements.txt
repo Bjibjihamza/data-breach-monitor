@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+requests
+beautifulsoup4
+feedparser
+elasticsearch==8.13.2
+celery
+redis
+pyyaml
+httpx
+telethon

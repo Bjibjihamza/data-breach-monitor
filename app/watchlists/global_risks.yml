@@ -1,0 +1,480 @@
+# =============================================================================
+# GitHub Public Exposure — Comprehensive Secret Leak Detection Profiles
+# =============================================================================
+# HOW QUERIES WORK:
+#   Each entry has:
+#     - query       : GitHub code search query
+#     - exclude     : list of patterns indicating false positives (tutorials, examples)
+#     - notes       : context / what to look for in results
+#
+# FALSE POSITIVE CONTROL:
+#   Strings like "example", "your_", "placeholder", "<your", "CHANGE_ME",
+#   "dummy", "test", "sample", "xxx", "1234", "password123", "changeme",
+#   "TODO", "xxxxxxxx", are typical tutorial/placeholder noise — skip them.
+#
+# SEVERITY LEVELS: critical | high | medium | low
+# =============================================================================
+
+_meta:
+  version: "2.0"
+  last_updated: "2025-05"
+  description: >
+    Organization-agnostic public exposure risk profiles.
+    GitHub code search queries designed to surface real leaked credentials,
+    not tutorial snippets or placeholder values.
+  false_positive_signals:
+    - "example"
+    - "sample"
+    - "placeholder"
+    - "your_password"
+    - "your_secret"
+    - "your_api_key"
+    - "<YOUR_"
+    - "CHANGE_ME"
+    - "changeme"
+    - "TODO"
+    - "FIXME"
+    - "password123"
+    - "test123"
+    - "dummy"
+    - "fake"
+    - "xxxxxxxx"
+    - "1234567890"
+    - "abcdefgh"
+    - "tutorial"
+    - "demo"
+    - "replace_this"
+    - "insert_here"
+    - "my_secret"        # common tutorial pattern
+    - "my_api_key"
+    - "mypassword"
+    - "localhost"        # often tutorial DBs
+    - "127.0.0.1"
+
+# =============================================================================
+# 1. ENVIRONMENT FILES
+# =============================================================================
+categories:
+  env_files:
+    name: Environment files (.env)
+    severity_hint: high
+    description: >
+      .env files committed to public repos. High signal — real apps rarely
+      use placeholder values in committed .env files.
+    queries:
+      - query: 'filename:.env DB_PASSWORD'
+        notes: "Look for non-placeholder values, real hostnames, cloud DB URLs"
+
+      - query: 'filename:.env DATABASE_URL postgres'
+        notes: "Postgres connection strings with credentials embedded"
+
+      - query: 'filename:.env DATABASE_URL mysql'
+        notes: "MySQL connection strings"
+
+      - query: 'filename:.env API_KEY extension:env'
+        notes: "Generic API keys; filter out placeholder=value patterns"
+
+      - query: 'filename:.env SECRET_KEY extension:env'
+        notes: "Django/Flask secret keys; real ones are long random strings"
+
+      - query: 'filename:.env STRIPE_SECRET_KEY'
+        notes: "Stripe live keys start with sk_live_ — high value target"
+
+      - query: 'filename:.env SENDGRID_API_KEY'
+        notes: "SendGrid keys start with SG."
+
+      - query: 'filename:.env TWILIO_AUTH_TOKEN'
+        notes: "Twilio auth tokens"
+
+      - query: 'filename:.env MAILGUN_API_KEY'
+        notes: "Mailgun API keys"
+
+      - query: 'filename:.env REDIS_URL'
+        notes: "Redis URLs sometimes contain passwords: redis://:password@host"
+
+      - query: 'filename:.env SMTP_PASSWORD'
+        notes: "SMTP credentials"
+
+      - query: 'filename:.env OAUTH_SECRET'
+        notes: "OAuth client secrets"
+
+  # ===========================================================================
+  # 2. DATABASE CREDENTIALS
+  # ===========================================================================
+  database_credentials:
+    name: Database credentials
+    severity_hint: high
+    description: >
+      Hardcoded connection strings. Key signal: real IP/hostname + real-looking
+      password (not 'password', 'admin', 'root' with no context).
+    queries:
+      - query: '"mongodb://" password NOT example NOT tutorial'
+        notes: "MongoDB URI with embedded password; check for real IPs/hostnames"
+
+      - query: '"mongodb+srv://" password'
+        notes: "MongoDB Atlas SRV URIs — cloud-hosted, higher value"
+
+      - query: '"postgres://" password NOT example NOT localhost'
+        notes: "PostgreSQL URI with credentials; filter localhost"
+
+      - query: '"mysql://" password NOT example NOT localhost'
+        notes: "MySQL URI"
+
+      - query: 'filename:docker-compose.yml POSTGRES_PASSWORD NOT changeme NOT password'
+        notes: "Docker compose with real PG passwords"
+
+      - query: 'filename:docker-compose.yml MYSQL_ROOT_PASSWORD NOT changeme NOT example'
+        notes: "Docker compose MySQL root password"
+
+      - query: 'filename:application.properties "spring.datasource.password" NOT changeme NOT password'
+        notes: "Spring Boot datasource config with real passwords"
+
+      - query: 'filename:application.yml "datasource.password" NOT changeme'
+        notes: "Spring Boot YAML config"
+
+      - query: 'filename:database.yml password NOT changeme NOT example'
+        notes: "Rails database.yml with credentials"
+
+      - query: 'filename:config.php DB_PASS NOT example NOT dummy'
+        notes: "PHP config files with DB passwords"
+
+      - query: 'filename:wp-config.php DB_PASSWORD NOT example NOT put_your'
+        notes: "WordPress config — very common leak vector"
+
+      - query: '"connectionString" "mongodb://" password'
+        notes: "Node.js / C# style connection strings"
+
+      - query: '"Data Source=" "Password=" NOT example NOT changeme'
+        notes: "ADO.NET / .NET connection strings"
+
+  # ===========================================================================
+  # 3. API KEYS (GENERIC + SERVICE-SPECIFIC)
+  # ===========================================================================
+  api_keys:
+    name: API keys
+    severity_hint: high
+    description: >
+      Service-specific API key patterns. Prefix-based patterns (sk_live_, SG., etc.)
+      are highest signal — these are real key formats.
+    queries:
+      # --- Payment ---
+      - query: '"sk_live_"'
+        notes: "Stripe live secret key — critical, direct financial impact"
+
+      - query: '"pk_live_"'
+        notes: "Stripe live publishable key (lower risk but confirms live env)"
+
+      - query: '"rk_live_"'
+        notes: "Stripe restricted live key"
+
+      - query: '"sq0atp-"'
+        notes: "Square access token"
+
+      - query: '"sq0csp-"'
+        notes: "Square OAuth secret"
+
+      # --- Communication ---
+      - query: '"SG." filename:.env'
+        notes: "SendGrid API key"
+
+      - query: '"AC" "SK" filename:.env twilio'
+        notes: "Twilio Account SID + Auth Token"
+
+      # --- Cloud ---
+      - query: '"AIza" filename:.env'
+        notes: "Google API key (AIzaSy... prefix)"
+
+      - query: '"ya29." oauth'
+        notes: "Google OAuth access token"
+
+      # --- Version Control ---
+      - query: '"ghp_"'
+        notes: "GitHub Personal Access Token (fine-grained) — direct repo access"
+
+      - query: '"gho_"'
+        notes: "GitHub OAuth token"
+
+      - query: '"ghs_"'
+        notes: "GitHub server-to-server token"
+
+      - query: '"glpat-"'
+        notes: "GitLab Personal Access Token"
+
+      - query: '"ATBB" filename:.env atlassian'
+        notes: "Atlassian/Bitbucket token"
+
+      # --- Misc SaaS ---
+      - query: '"xoxb-" OR "xoxp-" OR "xoxa-"'
+        notes: "Slack Bot/User/App tokens — can exfiltrate workspace messages"
+
+      - query: '"discord.com/api/webhooks/"'
+        notes: "Discord webhook URL with token embedded"
+
+      - query: '"hooks.slack.com/services/"'
+        notes: "Slack incoming webhook URL"
+
+      - query: '"npm_" filename:.npmrc'
+        notes: "npm auth token in .npmrc"
+
+  # ===========================================================================
+  # 4. CLOUD PROVIDER KEYS
+  # ===========================================================================
+  cloud_keys:
+    name: Cloud provider credentials
+    severity_hint: critical
+    description: >
+      Cloud IAM keys. These can lead to full account takeover.
+      AKIA prefix = AWS long-term key (highest risk).
+    queries:
+      # --- AWS ---
+      - query: '"AKIA" NOT example NOT AKIAIOSFODNN7EXAMPLE'
+        notes: "AWS Access Key ID; filter the canonical example key"
+
+      - query: '"AWS_SECRET_ACCESS_KEY" NOT example NOT wJalrXUtnFEMI'
+        notes: "AWS Secret Key; filter AWS docs example"
+
+      - query: 'filename:.aws/credentials aws_access_key_id NOT example'
+        notes: "AWS credentials file committed"
+
+      - query: 'filename:credentials aws_secret_access_key'
+        notes: "Any credentials file with AWS secret"
+
+      # --- GCP ---
+      - query: '"type": "service_account" "private_key_id"'
+        notes: "GCP service account JSON key — very high value"
+
+      - query: 'filename:*.json "client_secret" "auth_uri" "token_uri"'
+        notes: "Google OAuth client secret JSON"
+
+      # --- Azure ---
+      - query: '"DefaultEndpointsProtocol=https" "AccountKey="'
+        notes: "Azure Storage connection string with account key"
+
+      - query: '"clientSecret" "tenantId" "clientId" azure'
+        notes: "Azure service principal credentials"
+
+      # --- DigitalOcean ---
+      - query: '"dop_v1_" filename:.env'
+        notes: "DigitalOcean Personal Access Token"
+
+      # --- Heroku ---
+      - query: '"HEROKU_API_KEY" filename:.env'
+        notes: "Heroku API key"
+
+  # ===========================================================================
+  # 5. JWT & SESSION SECRETS
+  # ===========================================================================
+  jwt_tokens:
+    name: JWT / session secrets
+    severity_hint: high
+    description: >
+      JWT signing secrets. Real ones are long random strings.
+      Filter obvious placeholders.
+    queries:
+      - query: '"JWT_SECRET" NOT changeme NOT your_jwt_secret NOT mysecret'
+        notes: "JWT secret env var with non-placeholder value"
+
+      - query: '"JWT_SECRET_KEY" extension:env NOT example'
+        notes: "Alternative naming"
+
+      - query: '"SESSION_SECRET" extension:env NOT changeme NOT example'
+        notes: "Express/other framework session secret"
+
+      - query: '"NEXTAUTH_SECRET" filename:.env NOT example'
+        notes: "Next.js auth secret"
+
+      - query: '"eyJ" "HS256" filename:*.js NOT example NOT test'
+        notes: "Hardcoded JWT token in JS source (not just secret)"
+
+  # ===========================================================================
+  # 6. PRIVATE KEYS & CERTIFICATES
+  # ===========================================================================
+  private_keys:
+    name: Private keys & certificates
+    severity_hint: critical
+    description: >
+      Cryptographic private keys. Any real key committed is critical.
+      These are rarely in tutorials with real key material.
+    queries:
+      - query: '"BEGIN RSA PRIVATE KEY"'
+        notes: "PKCS#1 RSA private key — check if real or test key"
+
+      - query: '"BEGIN OPENSSH PRIVATE KEY"'
+        notes: "OpenSSH private key format"
+
+      - query: '"BEGIN EC PRIVATE KEY"'
+        notes: "Elliptic curve private key"
+
+      - query: '"BEGIN PGP PRIVATE KEY BLOCK"'
+        notes: "PGP private key"
+
+      - query: '"BEGIN DSA PRIVATE KEY"'
+        notes: "DSA private key"
+
+      - query: 'filename:*.pem "BEGIN PRIVATE KEY"'
+        notes: "PEM file with private key committed"
+
+      - query: 'filename:*.key "BEGIN PRIVATE KEY"'
+        notes: ".key file committed to repo"
+
+      - query: 'filename:id_rsa "BEGIN RSA PRIVATE KEY"'
+        notes: "SSH identity file committed — very common mistake"
+
+  # ===========================================================================
+  # 7. CONTAINER & INFRASTRUCTURE SECRETS
+  # ===========================================================================
+  infra_secrets:
+    name: Infrastructure & container secrets
+    severity_hint: high
+    description: >
+      Docker, Kubernetes, Terraform, Ansible secrets.
+    queries:
+      - query: 'filename:docker-compose.yml "POSTGRES_PASSWORD" NOT changeme NOT example NOT password'
+        notes: "Postgres password in compose"
+
+      - query: 'filename:docker-compose.yml "MYSQL_ROOT_PASSWORD" NOT changeme NOT example'
+        notes: "MySQL root in compose"
+
+      - query: 'filename:docker-compose.yml "SECRET_KEY" NOT changeme'
+        notes: "Generic secret in compose"
+
+      - query: 'filename:*.tfvars password NOT example NOT changeme'
+        notes: "Terraform variable files with real passwords"
+
+      - query: 'filename:terraform.tfvars secret NOT example'
+        notes: "Terraform secrets"
+
+      - query: 'kind:Secret filename:*.yaml "data:" kubernetes'
+        notes: "Kubernetes Secret manifest (base64 encoded — decode to verify)"
+
+      - query: 'filename:*.yml "ansible_become_password" NOT example'
+        notes: "Ansible privilege escalation password"
+
+      - query: 'filename:vault.yml "ansible_vault"'
+        notes: "Ansible vault file (check if actually encrypted or plaintext)"
+
+  # ===========================================================================
+  # 8. FRAMEWORK & CMS CONFIGS
+  # ===========================================================================
+  framework_configs:
+    name: Framework & CMS config files
+    severity_hint: medium
+    description: >
+      Framework config files with embedded secrets. Medium severity —
+      depends on whether value is real.
+    queries:
+      - query: 'filename:settings.py SECRET_KEY NOT "your-secret-key" NOT "change-this" NOT "django-insecure"'
+        notes: "Django secret key; django-insecure prefix = dev default, skip"
+
+      - query: 'filename:config.py SECRET_KEY NOT example NOT changeme'
+        notes: "Flask or generic Python config"
+
+      - query: 'filename:application.properties "spring.mail.password" NOT example'
+        notes: "Spring Boot mail credentials"
+
+      - query: 'filename:application.yml "spring.security.oauth2" "client-secret" NOT example'
+        notes: "Spring OAuth2 client secret"
+
+      - query: 'filename:.htpasswd'
+        notes: "Apache htpasswd file — contains hashed passwords, still sensitive"
+
+      - query: 'filename:config.json "api_key" NOT example NOT your_api_key'
+        notes: "Generic JSON config with API key"
+
+      - query: 'filename:secrets.yml NOT example NOT changeme'
+        notes: "Any secrets.yml file"
+
+      - query: 'filename:secrets.json NOT example NOT changeme'
+        notes: "Any secrets.json file"
+
+      - query: 'filename:.netrc password NOT example'
+        notes: ".netrc file with credentials (FTP, HTTP basic auth)"
+
+  # ===========================================================================
+  # 9. HARDCODED STRINGS IN SOURCE CODE
+  # ===========================================================================
+  hardcoded_in_source:
+    name: Hardcoded credentials in source code
+    severity_hint: high
+    description: >
+      Credentials directly in source files (not config). This is the pattern
+      described in the use case: `String mongo_uri = "mongodb://user:pass@host"`.
+      Key filter: real hostnames/IPs, non-tutorial usernames, non-placeholder passwords.
+    queries:
+      - query: '"mongodb://" "password" extension:java NOT example NOT tutorial NOT localhost NOT 127.0.0.1 NOT "your_password"'
+        notes: "Java hardcoded MongoDB URI — check hostname is real (not localhost/tutorial host)"
+
+      - query: '"mongodb://" "password" extension:kt NOT example NOT localhost'
+        notes: "Kotlin hardcoded MongoDB URI"
+
+      - query: '"mongodb://" "password" extension:py NOT example NOT localhost NOT tutorial'
+        notes: "Python hardcoded MongoDB URI"
+
+      - query: '"mongodb://" "password" extension:js NOT example NOT localhost NOT tutorial'
+        notes: "JavaScript hardcoded MongoDB URI"
+
+      - query: '"postgres://" extension:py NOT localhost NOT example NOT changeme'
+        notes: "Python hardcoded Postgres URI"
+
+      - query: 'password = " extension:py NOT example NOT changeme NOT test NOT dummy NOT your'
+        notes: "Python string assignment of password; high noise, filter aggressively"
+
+      - query: "password = ' extension:php NOT example NOT changeme NOT your NOT dummy"
+        notes: "PHP password assignment"
+
+      - query: '"password":" extension:json NOT example NOT changeme NOT test NOT dummy'
+        notes: "JSON file with password key and non-placeholder value"
+
+      - query: 'private static final String.*password.*= " extension:java NOT example NOT changeme'
+        notes: "Java static final string password — like the bipolar DB example"
+
+      - query: 'const.*apiKey.*=.*"[A-Za-z0-9_\-]{20,}" extension:js NOT example NOT test'
+        notes: "JS const with long API-key-looking string"
+
+      - query: 'apiKey: "AIza NOT example NOT tutorial'
+        notes: "Google API key hardcoded in JS/YAML/JSON"
+
+  # ===========================================================================
+  # 10. MISCELLANEOUS HIGH-VALUE TARGETS
+  # ===========================================================================
+  misc_high_value:
+    name: Miscellaneous high-value secrets
+    severity_hint: high
+    description: >
+      Other commonly leaked secrets not fitting above categories.
+    queries:
+      - query: 'filename:.pypirc password NOT example'
+        notes: "PyPI upload credentials"
+
+      - query: 'filename:.npmrc _authToken NOT example'
+        notes: "npm auth token"
+
+      - query: 'filename:.docker/config.json "auth"'
+        notes: "Docker registry auth (base64 encoded user:pass)"
+
+      - query: 'filename:*.ovpn "BEGIN PRIVATE KEY"'
+        notes: "OpenVPN config with embedded private key"
+
+      - query: '"GITHUB_TOKEN" filename:.travis.yml'
+        notes: "GitHub token in CI config"
+
+      - query: '"secure:" filename:.travis.yml'
+        notes: "Travis CI encrypted var (check if actual secret exposed nearby)"
+
+      - query: 'filename:Jenkinsfile withCredentials password NOT example'
+        notes: "Jenkins pipeline with credential variable"
+
+      - query: '"CIRCLE_TOKEN" OR "CIRCLECI_TOKEN" filename:.env'
+        notes: "CircleCI API token"
+
+      - query: '"FIREBASE_PRIVATE_KEY" NOT example'
+        notes: "Firebase admin SDK private key"
+
+      - query: '"databaseURL" "firebase" "apiKey" NOT example NOT tutorial'
+        notes: "Firebase client config with API key (lower risk but common)"
+
+      - query: '"Consumer Secret" "Consumer Key" twitter filename:*.rb NOT example'
+        notes: "Twitter/X API credentials in Ruby files"
+
+      - query: '"access_token" "token_secret" twitter NOT example'
+        notes: "Twitter OAuth access tokens"

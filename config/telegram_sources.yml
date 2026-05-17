@@ -1,0 +1,10 @@
+# config/telegram_sources.yml
+
+channels:
+  - name: "CVEDetector"
+    username: "CVEDetector"
+    url: "https://t.me/CVEDetector"
+    category: "cve_intelligence"
+    source_type: "telegram_public_channel"
+    limit_per_run: 100
+    enabled: true

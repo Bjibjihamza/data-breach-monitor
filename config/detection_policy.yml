@@ -1,0 +1,33 @@
+min_risk_score_to_index: 30
+ignore_placeholder_only: true
+index_low_signals: false
+example_paths_lower_confidence: true
+
+placeholder_values:
+  - ""
+  - null
+  - changeme
+  - change_me
+  - your_key
+  - your-token
+  - example
+  - dummy
+  - fake
+  - sample
+  - placeholder
+  - xxx
+  - <token>
+  - ${TOKEN}
+  - INSERT_KEY_HERE
+
+example_path_patterns:
+  - ".env.example"
+  - ".env.sample"
+  - ".env.e2e.example"
+  - "docker-compose.example.yml"
+  - "README.md"
+  - "docs/"
+  - "examples/"
+  - "test/"
+  - "tests/"
+  - "fixtures/"
