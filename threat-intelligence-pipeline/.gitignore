@@ -1,0 +1,21 @@
+# Ignore Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Ignore runtime directories
+.runtime/
+
+# Ignore archive folder
+archive/
+
+# Ignore zip files in Data/Raw
+Data/Raw/*.zip
+
+# Ignore all .pyc files
+*.pyc
+**/*.pyc
+
+# Ignore logs
+logs/
+
+# Ignore environment file
+.env

@@ -401,7 +401,7 @@ export function HealthCard({ source }) {
           {source.status || source.last_scan_status || 'ok'}
         </div>
       </div>
-      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', minHeight: '40px' }}>
+      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', minHeight: '20px' }}>
         {truncate(source.message || source.last_message || source.last_scan_result || 'Operational', 110)}
       </div>
       <div className="health-metrics">

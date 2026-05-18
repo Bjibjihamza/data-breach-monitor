@@ -1,4 +1,11 @@
-# config/telegram_sources.yml
+settings:
+  default_limit_per_run: 100
+  collect_files: false
+  collect_media: false
+  store_raw_leaks: false
+  redact_sensitive_data: true
+  deduplicate: true
+  enabled: true
 
 channels:
   - name: "CVEDetector"
@@ -6,5 +13,19 @@ channels:
     url: "https://t.me/CVEDetector"
     category: "cve_intelligence"
     source_type: "telegram_public_channel"
+    description: "Public channel used for CVE and vulnerability intelligence monitoring."
+    risk_level: "medium"
+    collect_mode: "metadata_and_text_only"
+    limit_per_run: 100
+    enabled: true
+
+  - name: "breachforums_cdn"
+    username: "breachforums_cdn"
+    url: "https://t.me/breachforums_cdn"
+    category: "data_breaches"
+    source_type: "telegram_public_channel"
+    description: "Public channel monitored for breach-related signals and exposure alerts."
+    risk_level: "high"
+    collect_mode: "metadata_and_text_only"
     limit_per_run: 100
     enabled: true

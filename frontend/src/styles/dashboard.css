@@ -280,7 +280,6 @@
 .page-scroll {
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 32px 40px 60px;
   position: relative;
 }
 
@@ -1046,7 +1045,6 @@ input:checked + .toggle-slider:before {
   .sidebar-toggle { display: none; }
   
   .main { padding-bottom: 60px; /* space for mobile nav */ }
-  .page-scroll { padding: 16px 16px 80px 16px; }
   .grid-2 { grid-template-columns: 1fr; }
   
   .filters-bar { flex-direction: column; align-items: stretch; }
