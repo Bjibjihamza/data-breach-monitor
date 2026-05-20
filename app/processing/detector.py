@@ -576,6 +576,7 @@ def _apply_detection_pipeline(
     secretish_candidates = [candidate for candidate in candidates if _candidate_is_secretish(candidate)]
     validations: list[dict[str, bool | str]] = []
     placeholder_count = 0
+    rejected_unknown_format = 0
     validation_reasons: list[str] = []
     secret_types: list[str] = []
     seen_valid_values: set[str] = set()
@@ -595,6 +596,8 @@ def _apply_detection_pipeline(
 
         if str(validation.get("secret_type") or "") == "placeholder":
             placeholder_count += 1
+        elif str(validation.get("secret_type") or "") == "unknown":
+            rejected_unknown_format += 1
         validation_reasons.append(_validation_label(candidate, validation))
 
     decision = score_validated_detection(
@@ -617,6 +620,7 @@ def _apply_detection_pipeline(
     indicators["extracted_secrets_count"] = len(secretish_candidates)
     indicators["validated_secrets_count"] = len(validations)
     indicators["placeholder_count"] = placeholder_count
+    indicators["rejected_unknown_format"] = rejected_unknown_format
     indicators["secret_types"] = secret_types
     indicators["validation_reasons"] = validation_reasons
     indicators["final_decision"] = decision.final_decision

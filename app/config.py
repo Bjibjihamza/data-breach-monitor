@@ -66,6 +66,11 @@ def _env_scan_mode(name: str, default: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     APP_ENV: str = os.getenv("APP_ENV", "development")
+    CORS_ALLOWED_ORIGINS: list[str] = field(
+        default_factory=lambda: _csv(
+            os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+        )
+    )
     ELASTICSEARCH_URL: str = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     GOOGLE_ALERTS_RSS_URL: str = os.getenv("GOOGLE_ALERTS_RSS_URL", "")
@@ -129,6 +134,17 @@ class Settings:
     GOOGLE_ALERTS_INCREMENTAL_MAX_ITEMS: int = _env_int("GOOGLE_ALERTS_INCREMENTAL_MAX_ITEMS", 50)
     TELEGRAM_INCREMENTAL_MAX_ITEMS: int = _env_int("TELEGRAM_INCREMENTAL_MAX_ITEMS", 50)
     GITHUB_DEFAULT_SCAN_MODE: str = _env_scan_mode("GITHUB_SCAN_MODE", "incremental")
+    # Authoritative GitHub index gate (not detection_policy.yml min_risk_score_to_index).
+    GITHUB_MIN_RISK_SCORE_TO_INDEX: int = _env_int("GITHUB_MIN_RISK_SCORE_TO_INDEX", 40, minimum=0)
+    GITHUB_INCLUDE_LOW_CONFIDENCE: bool = _env_bool("GITHUB_INCLUDE_LOW_CONFIDENCE", False)
+    GITHUB_DOWNGRADE_TEMPLATE_FILES: bool = _env_bool("GITHUB_DOWNGRADE_TEMPLATE_FILES", True)
+    GITHUB_REQUIRE_STRONG_SECRET_FOR_HIGH: bool = _env_bool("GITHUB_REQUIRE_STRONG_SECRET_FOR_HIGH", True)
+    GITHUB_EXPORT_LOW_CONFIDENCE: bool = _env_bool("GITHUB_EXPORT_LOW_CONFIDENCE", False)
+    LOCAL_DATA_EXPORT_ENABLED: bool = _env_bool("LOCAL_DATA_EXPORT_ENABLED", True)
+    LOCAL_DATA_EXPORT_DIR: str = os.getenv("LOCAL_DATA_EXPORT_DIR", "data")
+    LOCAL_DATA_EXPORT_FORMAT: str = os.getenv("LOCAL_DATA_EXPORT_FORMAT", "jsonl")
+    LOCAL_DATA_EXPORT_REDACT: bool = _env_bool("LOCAL_DATA_EXPORT_REDACT", True)
+    SCAN_STATUS_STALE_MINUTES: int = _env_int("SCAN_STATUS_STALE_MINUTES", 30, minimum=5)
 
 
 settings = Settings()

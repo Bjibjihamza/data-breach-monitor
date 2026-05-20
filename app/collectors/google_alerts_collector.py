@@ -56,12 +56,14 @@ class GoogleAlertsCollectionStats:
     new_feed_entries: int = 0
     feed_state_updates: dict[str, list[str]] = field(default_factory=dict)
     feed_link_state_updates: dict[str, list[str]] = field(default_factory=dict)
+    feed_published_updates: dict[str, str] = field(default_factory=dict)
     errors: int = 0
     config_error: str = ""
     skipped_existing: int = 0
     stopped_reason: str = ""
     scan_mode: str = SCAN_MODE_INCREMENTAL
     max_items_per_run: int = 0
+    latest_published_at: str = ""
     feed_stats: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -249,6 +251,32 @@ def _entry_datetime(entry: Any) -> str:
     return value
 
 
+def _parse_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _is_newer_than(value: str, watermark: str) -> bool:
+    parsed_value = _parse_datetime(value)
+    parsed_watermark = _parse_datetime(watermark)
+    if parsed_value is None or parsed_watermark is None:
+        return False
+    return parsed_value > parsed_watermark
+
+
+def _latest_datetime(current: str, candidate: str) -> str:
+    if not candidate:
+        return current
+    if not current:
+        return candidate
+    return candidate if _is_newer_than(candidate, current) else current
+
+
 def _entry_source(entry: Any, feed: Any) -> str:
     source = entry.get("source")
     if isinstance(source, dict):
@@ -321,6 +349,8 @@ def _event_from_entry(
         "title": title,
         "summary": summary,
         "source_url": link,
+        "feed_url": feed_config.rss_url,
+        "entry_id": entry_hash,
         "published_at": _entry_datetime(entry),
         "collected_at": collected_at,
         "source_name": _entry_source(entry, parsed_feed),
@@ -334,7 +364,9 @@ def _event_from_entry(
             "query": feed_config.query,
             "source_name": _entry_source(entry, parsed_feed),
             "feed_state_key": _feed_state_key(feed_config),
+            "feed_url": feed_config.rss_url,
             "entry_hash": entry_hash,
+            "entry_id": entry_hash,
             "scan_mode": scan_mode,
         },
     }
@@ -366,6 +398,8 @@ def collect_google_alert_events_with_stats(scan_mode: str | None = None) -> Goog
     stopped_reason = ""
     feed_state_updates: dict[str, list[str]] = {}
     feed_link_state_updates: dict[str, list[str]] = {}
+    feed_published_updates: dict[str, str] = {}
+    latest_published_at = ""
     feed_stats: list[dict[str, Any]] = []
 
     logger.info(
@@ -459,6 +493,15 @@ def collect_google_alert_events_with_stats(scan_mode: str | None = None) -> Goog
         known_link_set = set(known_links)
         observed_hashes: list[str] = []
         observed_links: list[str] = []
+        previous_latest_published_at = _as_string(feed_state.get("latest_published_at"))
+        feed_latest_published_at = previous_latest_published_at
+        cursor_reached = False
+        if previous_latest_published_at:
+            logger.info(
+                "[google_alerts] Feed %s: latest_published_at=%s",
+                feed_config.alert_name or feed_key,
+                previous_latest_published_at,
+            )
 
         for entry in limited_entries:
             if len(events) >= global_max_items:
@@ -474,9 +517,28 @@ def collect_google_alert_events_with_stats(scan_mode: str | None = None) -> Goog
 
             entry_hash = _entry_hash(feed_config, entry)
             entry_link = _as_string(entry.get("link"))
+            entry_published_at = _entry_datetime(entry)
             observed_hashes.append(entry_hash)
             if entry_link:
                 observed_links.append(entry_link)
+            feed_latest_published_at = _latest_datetime(feed_latest_published_at, entry_published_at)
+            latest_published_at = _latest_datetime(latest_published_at, entry_published_at)
+
+            if (
+                scan_mode == SCAN_MODE_INCREMENTAL
+                and previous_latest_published_at
+                and entry_published_at
+                and not _is_newer_than(entry_published_at, previous_latest_published_at)
+            ):
+                known_feed_entries += 1
+                feed_known += 1
+                cursor_reached = True
+                logger.info(
+                    "[google_alerts] Feed %s: cursor reached at published_at=%s",
+                    feed_config.alert_name or feed_key,
+                    entry_published_at,
+                )
+                break
 
             if entry_hash in known_hash_set or (entry_link and entry_link in known_link_set):
                 known_feed_entries += 1
@@ -503,6 +565,8 @@ def collect_google_alert_events_with_stats(scan_mode: str | None = None) -> Goog
             feed_state_updates[feed_key] = (observed_hashes + known_hashes)[:200]
         if observed_links:
             feed_link_state_updates[feed_key] = (observed_links + known_links)[:200]
+        if feed_latest_published_at and feed_latest_published_at != previous_latest_published_at:
+            feed_published_updates[feed_key] = feed_latest_published_at
 
         feed_stats.append(
             {
@@ -513,6 +577,9 @@ def collect_google_alert_events_with_stats(scan_mode: str | None = None) -> Goog
                 "known_entries": feed_known,
                 "new_entries": feed_new,
                 "skipped_existing": feed_skipped_existing,
+                "previous_latest_published_at": previous_latest_published_at,
+                "latest_published_at": feed_latest_published_at,
+                "cursor_reached": cursor_reached,
                 "errors": 0,
             }
         )
@@ -530,12 +597,14 @@ def collect_google_alert_events_with_stats(scan_mode: str | None = None) -> Goog
         new_feed_entries=new_feed_entries,
         feed_state_updates=feed_state_updates,
         feed_link_state_updates=feed_link_state_updates,
+        feed_published_updates=feed_published_updates,
         errors=errors,
         config_error=str(diagnostics["parse_error"]),
         skipped_existing=skipped_existing,
         stopped_reason=stopped_reason,
         scan_mode=scan_mode,
         max_items_per_run=global_max_items,
+        latest_published_at=latest_published_at,
         feed_stats=feed_stats,
     )
     logger.info(

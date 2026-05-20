@@ -15,6 +15,7 @@ DEFAULT_POLICY_PATH = PROJECT_ROOT / "config" / "detection_policy.yml"
 
 @dataclass(frozen=True)
 class DetectionPolicy:
+    # Generic pipeline threshold; GitHub uses settings.GITHUB_MIN_RISK_SCORE_TO_INDEX.
     min_risk_score_to_index: int = 30
     ignore_placeholder_only: bool = True
     index_low_signals: bool = False
@@ -40,12 +41,79 @@ class DetectionPolicy:
         default_factory=lambda: (
             ".env.example",
             ".env.sample",
+            ".env.template",
+            ".env.tmpl",
+            ".env.test",
+            ".env.sandbox",
+            ".env.local.example",
+            "example.env",
+            "sample.env",
+            "template.env",
             ".env.e2e.example",
             "README.md",
             "docs/",
             "examples/",
+            "tutorial/",
+            "demo/",
+            "guide/",
+            "boilerplate/",
+            "starter/",
+            "scaffold/",
+            "skeleton/",
             "tests/",
             "fixtures/",
+        )
+    )
+    github_strong_suspicious_basenames: tuple[str, ...] = field(
+        default_factory=lambda: (
+            ".env",
+            ".env.production",
+            ".env.prod",
+            ".env.live",
+            ".env.staging",
+            ".env.backup",
+            ".env.bak",
+            ".env.old",
+            ".env.save",
+            "credentials.json",
+            "serviceaccount.json",
+            "id_rsa",
+            "private.key",
+            "secrets.yml",
+            "secrets.yaml",
+        )
+    )
+    github_template_basenames: tuple[str, ...] = field(
+        default_factory=lambda: (
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+            ".env.tmpl",
+            ".env.test",
+            ".env.sandbox",
+            ".env.local.example",
+            "example.env",
+            "sample.env",
+            "template.env",
+        )
+    )
+    github_template_path_markers: tuple[str, ...] = field(
+        default_factory=lambda: (
+            "example",
+            "sample",
+            "template",
+            "tmpl",
+            "test",
+            "sandbox",
+            "demo",
+            "docs",
+            "readme",
+            "tutorial",
+            "guide",
+            "boilerplate",
+            "starter",
+            "scaffold",
+            "skeleton",
         )
     )
 
@@ -93,6 +161,17 @@ def load_detection_policy(path: str | Path = DEFAULT_POLICY_PATH) -> DetectionPo
     example_path_patterns = (
         _string_list(payload.get("example_path_patterns")) or defaults.example_path_patterns
     )
+    github_strong = (
+        _string_list(payload.get("github_strong_suspicious_basenames"))
+        or defaults.github_strong_suspicious_basenames
+    )
+    github_template = (
+        _string_list(payload.get("github_template_basenames")) or defaults.github_template_basenames
+    )
+    github_markers = (
+        _string_list(payload.get("github_template_path_markers"))
+        or defaults.github_template_path_markers
+    )
 
     return DetectionPolicy(
         min_risk_score_to_index=_as_int(
@@ -110,5 +189,7 @@ def load_detection_policy(path: str | Path = DEFAULT_POLICY_PATH) -> DetectionPo
         ),
         placeholder_values=placeholder_values,
         example_path_patterns=example_path_patterns,
+        github_strong_suspicious_basenames=github_strong,
+        github_template_basenames=github_template,
+        github_template_path_markers=github_markers,
     )
-

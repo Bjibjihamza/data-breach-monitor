@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.analytics import router as analytics_router
@@ -11,6 +13,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.detections import router as detections_router
 from app.collectors.google_alerts_collector import inspect_google_alerts_config
 from app.collectors.scan_modes import (
+    COLLECTOR_STATE_KEY,
     DEFAULT_SCAN_MODE,
     SCAN_MODE_BACKFILL,
     SCAN_MODE_INCREMENTAL,
@@ -28,7 +31,13 @@ from app.storage.elastic_client import (
     delete_mock_paste_detections,
     list_collection_states,
 )
-from app.storage.scan_status import mark_scan_queued
+from app.storage.scan_status import (
+    SUPPORTED_SOURCES,
+    get_aggregate_scan_status,
+    get_source_live_status,
+    init_scan_run,
+    is_source_active,
+)
 from app.tasks import (
     run_google_alerts_scan,
     run_mock_paste_scan,
@@ -53,6 +62,14 @@ app = FastAPI(
         "authorized public sources. Not a vulnerability scanner."
     ),
     version="0.3.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(detections_router)
@@ -152,6 +169,34 @@ def debug_collection_state() -> dict[str, object]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@app.get("/collector-state")
+def collector_state() -> dict[str, object]:
+    try:
+        result = list_collection_states(limit=500)
+    except ElasticsearchUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    grouped: dict[str, dict[str, object]] = {
+        source: {"collector": {}, "states": []}
+        for source in ("github", "google_alerts", "telegram")
+    }
+    for state in result.get("states", []):
+        if not isinstance(state, dict):
+            continue
+        source = str(state.get("source") or "")
+        if source not in grouped:
+            continue
+        if state.get("key") == COLLECTOR_STATE_KEY:
+            grouped[source]["collector"] = state
+        else:
+            grouped[source]["states"].append(state)
+    return {
+        "index": "collection_state",
+        "total": result.get("total", 0),
+        "sources": grouped,
+    }
+
+
 @app.get("/admin/initial-backfill")
 def admin_initial_backfill_status() -> dict[str, object]:
     return initial_backfill_status()
@@ -180,16 +225,70 @@ def scan_mock() -> dict[str, bool | str]:
     return {"success": True, "message": "Task queued", "task": task.id}
 
 
-def _queue_source_scan(source: str, task, mode: str | None) -> dict[str, object]:
+def _queue_source_scan(
+    source: str,
+    task,
+    mode: str | None,
+    *,
+    scan_group_id: str | None = None,
+    raise_on_conflict: bool = True,
+) -> dict[str, object]:
+    if source not in SUPPORTED_SOURCES:
+        raise HTTPException(status_code=400, detail=f"unsupported source: {source}")
+
+    if is_source_active(source):
+        active = get_source_live_status(source)
+        conflict = {
+            "success": False,
+            "source": source,
+            "status": "already_running",
+            "active_task_id": active.get("task_id"),
+            "run_id": active.get("run_id"),
+            "scan_group_id": active.get("scan_group_id"),
+            "message": f"{source.replace('_', ' ').title()} scan is already running",
+        }
+        if raise_on_conflict:
+            raise HTTPException(status_code=409, detail=conflict)
+        return conflict
+
     scan_mode = _resolve_scan_mode(mode)
-    async_result = task.delay(mode=scan_mode)
-    mark_scan_queued(source, task_id=async_result.id)
+    source_group_id = scan_group_id or f"scan-{uuid4().hex}"
+    run_id = f"{source}-{uuid4().hex}"
+    async_result = task.delay(mode=scan_mode, scan_group_id=source_group_id, run_id=run_id)
+    init_scan_run(
+        source,
+        task_id=async_result.id,
+        run_id=run_id,
+        scan_group_id=source_group_id,
+        requested_mode=scan_mode,
+        effective_mode=scan_mode,
+    )
+    live = get_source_live_status(source)
     return {
         "success": True,
         "source": source,
+        "status": "queued",
         "scan_mode": scan_mode,
+        "requested_mode": scan_mode,
+        "effective_mode": live.get("effective_mode") or scan_mode,
+        "scan_group_id": source_group_id,
+        "run_id": run_id,
+        "task_id": async_result.id,
         "task": async_result.id,
     }
+
+
+@app.get("/scan/status")
+def scan_status_all() -> dict[str, object]:
+    return get_aggregate_scan_status()
+
+
+@app.get("/scan/status/{source}")
+def scan_status_source(source: str) -> dict[str, object]:
+    normalized = source.strip().lower().replace("-", "_")
+    if normalized not in SUPPORTED_SOURCES:
+        raise HTTPException(status_code=404, detail=f"unknown source: {source}")
+    return get_source_live_status(normalized)
 
 
 @app.post("/scan/google-alerts")
@@ -212,12 +311,38 @@ def scan_all(mode: str | None = Query(default=None)) -> dict[str, object]:
     """Enqueue all three external sources at once. Defaults to incremental."""
 
     scan_mode = _resolve_scan_mode(mode)
+    scan_group_id = f"scan-all-{uuid4().hex}"
     results = {
-        "github": _queue_source_scan("github", scan_github_task, scan_mode),
-        "google_alerts": _queue_source_scan("google_alerts", run_google_alerts_scan, scan_mode),
-        "telegram": _queue_source_scan("telegram", scan_telegram_channels, scan_mode),
+        "github": _queue_source_scan(
+            "github",
+            scan_github_task,
+            scan_mode,
+            scan_group_id=scan_group_id,
+            raise_on_conflict=False,
+        ),
+        "google_alerts": _queue_source_scan(
+            "google_alerts",
+            run_google_alerts_scan,
+            scan_mode,
+            scan_group_id=scan_group_id,
+            raise_on_conflict=False,
+        ),
+        "telegram": _queue_source_scan(
+            "telegram",
+            scan_telegram_channels,
+            scan_mode,
+            scan_group_id=scan_group_id,
+            raise_on_conflict=False,
+        ),
     }
-    return {"success": True, "scan_mode": scan_mode, "results": results}
+    queued = [name for name, payload in results.items() if payload.get("success")]
+    return {
+        "success": bool(queued),
+        "scan_mode": scan_mode,
+        "scan_group_id": scan_group_id,
+        "queued_sources": queued,
+        "results": results,
+    }
 
 
 @app.delete("/admin/dev/mock-data")

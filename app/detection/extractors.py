@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import base64
 import re
 from dataclasses import dataclass
 from typing import Iterable
+
+from app.detection.token_patterns import (
+    BARE_TOKEN_SCAN_RE,
+    DOCKER_ENV_ARG_RE,
+    PLIST_STRING_RE,
+    YAML_KV_RE,
+)
 
 
 @dataclass(frozen=True)
@@ -33,9 +41,6 @@ DATABASE_URL_RE = re.compile(
     r"\b(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|mariadb)://[^\s'\"<>]+",
     re.IGNORECASE,
 )
-BARE_PROVIDER_TOKEN_RE = re.compile(
-    r"\b(?:gh[oprsu]_[A-Za-z0-9_]{30,}|github_pat_[A-Za-z0-9_]{20,}_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|sk_live_[A-Za-z0-9]{16,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b"
-)
 
 
 def _line_number_for_offset(text: str, offset: int) -> int:
@@ -61,12 +66,35 @@ def _strip_inline_comment(value: str) -> str:
     return re.split(r"\s+#", cleaned, maxsplit=1)[0].strip().strip(",")
 
 
+def _decode_k8s_value(raw_value: str) -> str:
+    cleaned = raw_value.strip().strip('"').strip("'")
+    if not cleaned or " " in cleaned:
+        return cleaned
+    try:
+        decoded = base64.b64decode(cleaned, validate=True).decode("utf-8")
+        if decoded:
+            return decoded
+    except (ValueError, UnicodeDecodeError):
+        pass
+    return cleaned
+
+
 def extract_key_values(text: str) -> list[ExtractedSecret]:
     lines = text.splitlines()
     extracted: list[ExtractedSecret] = []
     seen: set[tuple[str, str, int]] = set()
+    in_k8s_block = False
+    k8s_block_indent = 0
+    k8s_block_type = ""
 
-    def append_candidate(key: str, value: str, line_number: int, raw: str) -> None:
+    def append_candidate(
+        key: str,
+        value: str,
+        line_number: int,
+        raw: str,
+        *,
+        source: str = "assignment",
+    ) -> None:
         unique_key = (key.lower(), value, line_number)
         if unique_key in seen:
             return
@@ -78,13 +106,40 @@ def extract_key_values(text: str) -> list[ExtractedSecret]:
                 line_number=line_number,
                 context=_context(lines, line_number),
                 raw=raw.rstrip(),
-                source="assignment",
+                source=source,
             )
         )
 
     for line_number, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("//"):
+            continue
+
+        lowered = stripped.lower()
+        if lowered.startswith("stringdata:") or (lowered.startswith("data:") and not lowered.startswith("database")):
+            in_k8s_block = True
+            k8s_block_type = "data" if lowered.startswith("data:") else "stringdata"
+            k8s_block_indent = len(line) - len(line.lstrip())
+            continue
+        if in_k8s_block:
+            indent = len(line) - len(line.lstrip())
+            if stripped and indent <= k8s_block_indent and not stripped.startswith("-"):
+                in_k8s_block = False
+                k8s_block_type = ""
+            else:
+                yaml_match = YAML_KV_RE.match(line)
+                if yaml_match:
+                    key = yaml_match.group("key").strip()
+                    raw_value = _strip_inline_comment(yaml_match.group("value"))
+                    value = _decode_k8s_value(raw_value) if k8s_block_type == "data" else raw_value
+                    append_candidate(key, value, line_number, line, source="kubernetes_secret")
+                continue
+
+        docker_match = DOCKER_ENV_ARG_RE.match(line)
+        if docker_match:
+            key = docker_match.group("key").strip()
+            value = _strip_inline_comment(docker_match.group("value"))
+            append_candidate(key, value, line_number, line, source="dockerfile_env")
             continue
 
         match = JSON_ASSIGNMENT_RE.match(line) or ASSIGNMENT_RE.match(line)
@@ -97,17 +152,25 @@ def extract_key_values(text: str) -> list[ExtractedSecret]:
                     if inline_match.group("single") is not None
                     else inline_match.group("bare") or ""
                 )
+                source = "cicd_env" if any(
+                    marker in (line.lower())
+                    for marker in (".github/workflows", "gitlab-ci", "circle", "azure-pipelines")
+                ) else "assignment"
                 append_candidate(
                     inline_match.group("key").strip(),
                     value.strip(),
                     line_number,
                     inline_match.group(0),
+                    source=source,
                 )
             continue
 
         key = match.group("key").strip().strip('"').strip("'")
         value = _strip_inline_comment(match.group("value"))
-        append_candidate(key, value, line_number, line)
+        source = "assignment"
+        if any(token in lowered for token in ("env:", "secrets.", "${{ secrets")):
+            source = "cicd_env"
+        append_candidate(key, value, line_number, line, source=source)
 
     return extracted
 
@@ -143,7 +206,7 @@ def _private_key_candidates(text: str) -> Iterable[ExtractedSecret]:
 
 def _bare_token_candidates(text: str) -> Iterable[ExtractedSecret]:
     lines = text.splitlines()
-    for match in BARE_PROVIDER_TOKEN_RE.finditer(text):
+    for match in BARE_TOKEN_SCAN_RE.finditer(text):
         line_number = _line_number_for_offset(text, match.start())
         yield ExtractedSecret(
             key="TOKEN",
@@ -169,11 +232,26 @@ def _database_url_candidates(text: str) -> Iterable[ExtractedSecret]:
         )
 
 
+def _plist_candidates(text: str) -> Iterable[ExtractedSecret]:
+    lines = text.splitlines()
+    for match in PLIST_STRING_RE.finditer(text):
+        line_number = _line_number_for_offset(text, match.start())
+        yield ExtractedSecret(
+            key=match.group("key").strip(),
+            value=match.group("value").strip(),
+            line_number=line_number,
+            context=_context(lines, line_number),
+            raw=match.group(0),
+            source="assignment",
+        )
+
+
 def extract_secret_candidates(text: str) -> list[ExtractedSecret]:
     candidates = list(extract_key_values(text))
     candidates.extend(_private_key_candidates(text))
     candidates.extend(_database_url_candidates(text))
     candidates.extend(_bare_token_candidates(text))
+    candidates.extend(_plist_candidates(text))
 
     unique: dict[tuple[str, str, int], ExtractedSecret] = {}
     for candidate in candidates:

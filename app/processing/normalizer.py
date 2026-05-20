@@ -42,6 +42,16 @@ def normalize_detection(
         "final_decision",
         "triage_status",
         "confidence_score",
+        "path_classification",
+        "evidence_strength",
+        "scoring_reason",
+        "github_should_index",
+        "github_should_export",
+        "github_downgraded_template",
+        "github_skipped_placeholder",
+        "github_skipped_low_confidence",
+        "drop_reason",
+        "rejected_unknown_format",
     }
     detected_indicators = [
         key
@@ -80,7 +90,10 @@ def normalize_detection(
         "content_evidence": list(indicators.get("content_evidence", [])),
         "evidence_lines": list(indicators.get("evidence_lines", [])),
         "evidence_line_numbers": list(indicators.get("evidence_line_numbers", [])),
-        "evidence_excerpt": str(indicators.get("evidence_excerpt") or ""),
+        "evidence_excerpt": str(indicators.get("evidence_excerpt") or "")[:500],
+        "path_classification": str(indicators.get("path_classification") or ""),
+        "evidence_strength": str(indicators.get("evidence_strength") or ""),
+        "scoring_reason": str(indicators.get("scoring_reason") or ""),
         "search_query_context": str(
             indicators.get("search_query_context")
             or event_metadata.get("search_query_context", "")

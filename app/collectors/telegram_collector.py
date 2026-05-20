@@ -40,18 +40,27 @@ class TelegramChannelSource:
 @dataclass(frozen=True)
 class TelegramCollectionStats:
     channels_loaded: int = 0
-    channels_scanned: int = 0
+    channels_processed: int = 0
+    channels_with_errors: int = 0
+    messages_seen: int = 0
     messages_collected: int = 0
     new_messages_found: int = 0
     messages_already_known: int = 0
     last_seen_message_id: int = 0
+    last_message_date: str = ""
     channel_last_seen_updates: dict[str, int] = field(default_factory=dict)
+    channel_last_seen_date_updates: dict[str, str] = field(default_factory=dict)
     errors: int = 0
     skipped_existing: int = 0
     stopped_reason: str = ""
     scan_mode: str = SCAN_MODE_INCREMENTAL
     max_items_per_run: int = 0
     channel_stats: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def channels_scanned(self) -> int:
+        """Backward-compatible alias for channels_processed."""
+        return self.channels_processed
 
 
 @dataclass(frozen=True)
@@ -148,6 +157,28 @@ def _message_datetime(value: Any) -> str:
     return ""
 
 
+def _parse_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _latest_datetime(current: str, candidate: str) -> str:
+    if not candidate:
+        return current
+    if not current:
+        return candidate
+    current_dt = _parse_datetime(current)
+    candidate_dt = _parse_datetime(candidate)
+    if current_dt is None or candidate_dt is None:
+        return current
+    return candidate if candidate_dt > current_dt else current
+
+
 def _message_url(channel: TelegramChannelSource, message_id: int) -> str:
     username = channel.username.lstrip("@")
     if username:
@@ -203,7 +234,7 @@ def _global_max_items(scan_mode: str) -> int:
 
 def _per_channel_limit(channel: TelegramChannelSource, scan_mode: str, remaining_budget: int) -> int:
     if is_backfill(scan_mode):
-        per_channel = max(channel.limit_per_run, settings.TELEGRAM_LIMIT_PER_CHANNEL)
+        per_channel = remaining_budget
     else:
         per_channel = channel.limit_per_run
     return max(1, min(per_channel, remaining_budget))
@@ -244,11 +275,14 @@ async def _collect_telegram_events_async(
 
     events: list[dict[str, Any]] = []
     errors = 0
-    channels_scanned = 0
+    channels_processed = 0
+    channels_with_errors = 0
+    messages_seen = 0
     messages_already_known = 0
     skipped_existing = 0
     stopped_reason = ""
     channel_last_seen_updates: dict[str, int] = {}
+    channel_last_seen_date_updates: dict[str, str] = {}
     channel_stats: list[dict[str, Any]] = []
 
     client = TelegramClient(
@@ -296,6 +330,15 @@ async def _collect_telegram_events_async(
 
             state = get_collection_state("telegram", username)
             last_seen_message_id = int(state.get("last_seen_message_id") or 0)
+            last_message_date = _as_string(state.get("last_message_date") or state.get("last_seen_message_date"))
+            logger.info(
+                "[telegram] Channel %s: last_message_id=%s last_message_date=%s mode=%s limit=%s",
+                username,
+                last_seen_message_id,
+                last_message_date or "none",
+                scan_mode,
+                channel_limit,
+            )
             try:
                 if scan_mode == SCAN_MODE_INCREMENTAL and last_seen_message_id > 0:
                     messages = [
@@ -311,6 +354,8 @@ async def _collect_telegram_events_async(
                     messages = await client.get_messages(username, limit=channel_limit)
             except (RPCError, ValueError, OSError) as exc:
                 errors += 1
+                channels_with_errors += 1
+                error_message = f"{exc.__class__.__name__}: {exc}"[:500]
                 channel_stats.append(
                     {
                         "channel": username,
@@ -320,22 +365,25 @@ async def _collect_telegram_events_async(
                         "messages_already_known": 0,
                         "skipped_existing": 0,
                         "last_seen_message_id": last_seen_message_id,
+                        "last_message_date": last_message_date or "",
                         "errors": 1,
+                        "error_message": error_message,
                     }
                 )
                 logger.warning(
                     "Skipping Telegram channel '%s': unable to fetch messages (%s).",
                     channel.name or username,
-                    exc.__class__.__name__,
+                    error_message,
                 )
                 continue
 
-            channels_scanned += 1
+            channels_processed += 1
             channel_message_count = 0
             channel_seen = 0
             channel_known = 0
             channel_skipped_existing = 0
             newest_message_id = last_seen_message_id
+            newest_message_date = last_message_date
             for message in messages:
                 if len(events) >= global_max_items:
                     stopped_reason = "max_items_per_run_reached"
@@ -344,15 +392,18 @@ async def _collect_telegram_events_async(
                 message_id = int(getattr(message, "id", 0) or 0)
                 if message_id <= 0:
                     continue
+                message_date = _message_datetime(getattr(message, "date", None))
                 channel_seen += 1
+                messages_seen += 1
                 if scan_mode == SCAN_MODE_INCREMENTAL and last_seen_message_id > 0 and message_id <= last_seen_message_id:
                     messages_already_known += 1
                     channel_known += 1
                     continue
+                newest_message_id = max(newest_message_id, message_id)
+                newest_message_date = _latest_datetime(newest_message_date, message_date)
                 if detection_exists_by_telegram_message(username, message_id):
                     skipped_existing += 1
                     channel_skipped_existing += 1
-                    newest_message_id = max(newest_message_id, message_id)
                     continue
 
                 event = _event_from_message(channel, message, scan_mode=scan_mode)
@@ -360,10 +411,11 @@ async def _collect_telegram_events_async(
                     continue
                 events.append(event)
                 channel_message_count += 1
-                newest_message_id = max(newest_message_id, int(event["message_id"]))
 
             if newest_message_id > last_seen_message_id:
                 channel_last_seen_updates[username] = newest_message_id
+            if newest_message_date and newest_message_date != last_message_date:
+                channel_last_seen_date_updates[username] = newest_message_date
 
             if channel_message_count == 0:
                 logger.info("Telegram channel '%s' returned no text messages.", channel.name or username)
@@ -377,7 +429,9 @@ async def _collect_telegram_events_async(
                     "messages_already_known": channel_known,
                     "skipped_existing": channel_skipped_existing,
                     "last_seen_message_id": newest_message_id,
+                    "last_message_date": newest_message_date or "",
                     "errors": 0,
+                    "error_message": "",
                 }
             )
 
@@ -397,12 +451,16 @@ async def _collect_telegram_events_async(
         events=events,
         stats=TelegramCollectionStats(
             channels_loaded=len(channels),
-            channels_scanned=channels_scanned,
+            channels_processed=channels_processed,
+            channels_with_errors=channels_with_errors,
+            messages_seen=messages_seen,
             messages_collected=len(events),
             new_messages_found=len(events),
             messages_already_known=messages_already_known,
             last_seen_message_id=max(channel_last_seen_updates.values()) if channel_last_seen_updates else 0,
+            last_message_date=max(channel_last_seen_date_updates.values()) if channel_last_seen_date_updates else "",
             channel_last_seen_updates=channel_last_seen_updates,
+            channel_last_seen_date_updates=channel_last_seen_date_updates,
             errors=errors,
             skipped_existing=skipped_existing,
             stopped_reason=stopped_reason,

@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { useDetections } from '../hooks/useDetections.js';
 import { CONFIDENCES, SEVERITIES, SOURCES, STATUSES } from '../utils/constants.js';
 import {
-  DetectionDrawer, DetectionCards, ErrorBanner, Loading, fmt
+  DetectionDrawer, DetectionCards, DetectionPager, ErrorBanner, Loading, fmt
 } from './_shared.jsx';
 
 export default function AllDetectionsPage() {
@@ -84,6 +84,13 @@ export default function AllDetectionsPage() {
             <DetectionCards
               detections={detections.data?.detections || []}
               onSelect={setSelected}
+            />
+          )}
+          {!detections.loading && (
+            <DetectionPager
+              data={detections.data}
+              loadingMore={detections.loadingMore}
+              onLoadMore={detections.loadMore}
             />
           )}
         </div>

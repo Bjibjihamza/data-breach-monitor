@@ -175,6 +175,26 @@ export function DetectionCards({ detections = [], onSelect }) {
   );
 }
 
+export function DetectionPager({ data, loadingMore, onLoadMore }) {
+  if (!data) return null;
+  const shown = (data.detections || data.items || []).length;
+  const total = Number(data.total || 0);
+  if (!total) return null;
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginTop: '18px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+      <span style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
+        Showing {fmt(shown)} of {fmt(total)}
+      </span>
+      {data.has_more && (
+        <button className="btn btn-outline" onClick={onLoadMore} disabled={loadingMore}>
+          <i className={`ti ${loadingMore ? 'ti-loader-2' : 'ti-chevron-down'}`} />
+          {loadingMore ? 'Loading...' : 'Load More'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function DetectionDrawer({ detection, onClose, onUpdated }) {
   const [tab, setTab] = useState('details');
   const [current, setCurrent] = useState(detection);

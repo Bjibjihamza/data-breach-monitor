@@ -4,10 +4,11 @@ import { useCollectionRuns } from '../hooks/useCollectionRuns.js';
 import { useCollectionState } from '../hooks/useCollectionState.js';
 import { useDetections } from '../hooks/useDetections.js';
 import { useSourceHealth } from '../hooks/useSourceHealth.js';
-import { fmtDate, fmt, DetectionDrawer, DetectionCards, ErrorBanner, HealthCard, Loading, RunCard, truncate } from './_shared.jsx';
+import SourceRunPanel from '../components/scan/SourceRunPanel.jsx';
+import { fmtDate, fmt, DetectionDrawer, DetectionCards, DetectionPager, ErrorBanner, HealthCard, Loading, RunCard, truncate } from './_shared.jsx';
 
 export default function GoogleAlertsPage() {
-  const { refreshKey, setModalOpen } = useOutletContext();
+  const { refreshKey, refresh, setModalOpen } = useOutletContext();
   const [filters, setFilters] = useState({ source: 'google_alerts' });
   const [selected, setSelected] = useState(null);
 
@@ -25,11 +26,13 @@ export default function GoogleAlertsPage() {
   const states = (state.data?.states || []).filter((s) => s.source === 'google_alerts');
   const latestDetails = runs.data?.runs?.[0]?.details || {};
   const rows = useMemo(() => detections.data?.detections || [], [detections.data]);
+  const totalSignals = detections.data?.total ?? rows.length;
 
   const set = (key) => (e) => setFilters((f) => ({ ...f, [key]: e.target.value }));
 
   return (
     <div className="ga-page">
+      <SourceRunPanel source="google_alerts" onScanStarted={() => refresh?.()} />
       <style>{`
         .ga-page {
           padding: 20px 26px;
@@ -285,7 +288,7 @@ export default function GoogleAlertsPage() {
         </div>
         <div className="ga-stats-container">
           <div className="ga-stat-box">
-            <div className="ga-stat-value">{fmt(rows.length)}</div>
+            <div className="ga-stat-value">{fmt(totalSignals)}</div>
             <div className="ga-stat-label">Feed Matches</div>
           </div>
           <div className="ga-stat-box">
@@ -304,7 +307,7 @@ export default function GoogleAlertsPage() {
               <div className="ga-panel-title">
                 <i className="ti ti-article"></i> Intelligence Feed
               </div>
-              <span className="badge badge-outline" style={{ background: 'rgba(20, 184, 166, 0.1)', borderColor: 'rgba(20, 184, 166, 0.3)', color: '#5eead4' }}>{fmt(rows.length)} articles</span>
+              <span className="badge badge-outline" style={{ background: 'rgba(20, 184, 166, 0.1)', borderColor: 'rgba(20, 184, 166, 0.3)', color: '#5eead4' }}>{fmt(totalSignals)} total articles</span>
             </div>
             
             <div className="ga-filter-bar">
@@ -344,6 +347,11 @@ export default function GoogleAlertsPage() {
               {!detections.loading && (
                 <div style={{ padding: '24px' }}>
                   <DetectionCards detections={rows} onSelect={setSelected} />
+                  <DetectionPager
+                    data={detections.data}
+                    loadingMore={detections.loadingMore}
+                    onLoadMore={detections.loadMore}
+                  />
                 </div>
               )}
             </div>

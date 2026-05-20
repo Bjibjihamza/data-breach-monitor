@@ -4,10 +4,11 @@ import { useCollectionRuns } from '../hooks/useCollectionRuns.js';
 import { useCollectionState } from '../hooks/useCollectionState.js';
 import { useDetections } from '../hooks/useDetections.js';
 import { useSourceHealth } from '../hooks/useSourceHealth.js';
-import { fmtDate, fmt, DetectionDrawer, DetectionCards, ErrorBanner, HealthCard, Loading, RunCard, JsonBlock } from './_shared.jsx';
+import SourceRunPanel from '../components/scan/SourceRunPanel.jsx';
+import { fmtDate, fmt, DetectionDrawer, DetectionCards, DetectionPager, ErrorBanner, HealthCard, Loading, RunCard, JsonBlock } from './_shared.jsx';
 
 export default function GitHubPage() {
-  const { refreshKey, setModalOpen } = useOutletContext();
+  const { refreshKey, refresh, setModalOpen } = useOutletContext();
   const [filters, setFilters] = useState({ source: 'github' });
   const [secretType, setSecretType] = useState('');
   const [selected, setSelected] = useState(null);
@@ -27,6 +28,7 @@ export default function GitHubPage() {
   const rows = (detections.data?.detections || []).filter((r) =>
     !secretType || (r.secret_types || []).some((t) => t.toLowerCase().includes(secretType.toLowerCase()))
   );
+  const totalSignals = detections.data?.total ?? rows.length;
 
   const set = (key) => (e) => setFilters((f) => ({ ...f, [key]: e.target.value }));
 
@@ -47,6 +49,7 @@ export default function GitHubPage() {
 
   return (
     <div className="gh-page">
+      <SourceRunPanel source="github" onScanStarted={() => refresh?.()} />
       <style>{`
         .gh-page {
           padding: 20px 26px;
@@ -276,7 +279,7 @@ export default function GitHubPage() {
         </div>
         <div className="gh-stats-container">
           <div className="gh-stat-box">
-            <div className="gh-stat-value">{fmt(rows.length)}</div>
+            <div className="gh-stat-value">{fmt(totalSignals)}</div>
             <div className="gh-stat-label">Total Exposures</div>
           </div>
           <div className="gh-stat-box">
@@ -295,7 +298,7 @@ export default function GitHubPage() {
               <div className="gh-panel-title">
                 <i className="ti ti-radar"></i> Exposure Signals
               </div>
-              <span className="badge badge-outline" style={{ background: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', color: '#60a5fa' }}>{fmt(rows.length)} signals</span>
+              <span className="badge badge-outline" style={{ background: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', color: '#60a5fa' }}>{fmt(totalSignals)} total signals</span>
             </div>
             
             <div className="gh-filter-bar">
@@ -340,6 +343,11 @@ export default function GitHubPage() {
               {!detections.loading && (
                 <div style={{ padding: '24px' }}>
                   <DetectionCards detections={rows} onSelect={setSelected} />
+                  <DetectionPager
+                    data={detections.data}
+                    loadingMore={detections.loadingMore}
+                    onLoadMore={detections.loadMore}
+                  />
                 </div>
               )}
             </div>

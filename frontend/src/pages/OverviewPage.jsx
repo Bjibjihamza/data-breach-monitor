@@ -2,6 +2,7 @@ import { useOutletContext } from 'react-router-dom';
 import { useCollectionRuns } from '../hooks/useCollectionRuns.js';
 import { useSourceHealth } from '../hooks/useSourceHealth.js';
 import { useSummary } from '../hooks/useSummary.js';
+import LiveScanStatusCards from '../components/scan/LiveScanStatusCards.jsx';
 import {
   BarChart, Breakdown, DetectionCards, ErrorBanner, HealthCard,
   Loading, fmt
@@ -24,6 +25,7 @@ export default function OverviewPage() {
 
   return (
     <div className="ov-page">
+      <LiveScanStatusCards title="Live Scan Status" compact />
       <style>{`
         .ov-page {
           padding: 20px 26px;

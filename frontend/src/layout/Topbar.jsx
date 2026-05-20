@@ -1,20 +1,28 @@
 import { useState } from 'react';
-import { scanAll } from '../api/scans.js';
+import { runAllSources } from '../api/scans.js';
+import { useScanStatusContext } from '../context/ScanStatusContext.jsx';
 
 export default function Topbar({ lastRefresh, refresh, autoRefresh, setAutoRefresh }) {
   const ts = lastRefresh ? new Date(lastRefresh).toLocaleTimeString() : '—';
+  const { refresh: refreshStatus, anyActive } = useScanStatusContext();
   const [scanAllBusy, setScanAllBusy] = useState(false);
 
   const handleScanAll = async () => {
     setScanAllBusy(true);
     try {
-      await scanAll('incremental');
+      await runAllSources('incremental');
+      await refreshStatus();
       refresh?.();
     } catch (e) {
       console.error(e);
     } finally {
       setScanAllBusy(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    await refreshStatus();
+    refresh?.();
   };
 
   return (
@@ -27,6 +35,11 @@ export default function Topbar({ lastRefresh, refresh, autoRefresh, setAutoRefre
         <span className="topbar-refresh">
           <i className="ti ti-clock" />
           Last sync: {ts}
+          {anyActive && (
+            <span style={{ marginLeft: 10, color: '#67e8f9' }}>
+              <i className="ti ti-loader-2 scan-spinner" /> Scan in progress
+            </span>
+          )}
         </span>
       </div>
       <div className="topbar-actions">
@@ -38,20 +51,20 @@ export default function Topbar({ lastRefresh, refresh, autoRefresh, setAutoRefre
           />
           <span className="toggle-slider" />
         </label>
-        
+
         <button className="btn btn-ghost" title="Notifications">
           <i className="ti ti-bell" />
         </button>
 
-        <button className="btn btn-ghost" onClick={refresh} title="Refresh Data">
+        <button className="btn btn-ghost" onClick={handleRefresh} title="Refresh Data">
           <i className="ti ti-refresh" />
         </button>
 
-        <button className="btn btn-primary" onClick={handleScanAll} disabled={scanAllBusy}>
+        <button className="btn btn-primary" onClick={handleScanAll} disabled={scanAllBusy || anyActive}>
           <i className="ti ti-radar-2" />
-          {scanAllBusy ? 'Scanning...' : 'Run Scan'}
+          {scanAllBusy ? 'Starting…' : anyActive ? 'Scan Running' : 'Run Scan'}
         </button>
-        
+
         <button className="btn btn-ghost" style={{ borderRadius: '50%', padding: '4px' }}>
           <i className="ti ti-user-circle" style={{ fontSize: '24px' }} />
         </button>

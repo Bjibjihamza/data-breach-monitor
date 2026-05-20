@@ -1,3 +1,5 @@
+# Generic pipeline threshold (Telegram, Google Alerts, etc.).
+# GitHub indexing uses GITHUB_MIN_RISK_SCORE_TO_INDEX from app/config.py — not this value.
 min_risk_score_to_index: 30
 ignore_placeholder_only: true
 index_low_signals: false
@@ -5,29 +7,115 @@ example_paths_lower_confidence: true
 
 placeholder_values:
   - ""
-  - null
-  - changeme
-  - change_me
-  - your_key
-  - your-token
-  - example
-  - dummy
-  - fake
-  - sample
-  - placeholder
-  - xxx
-  - <token>
-  - ${TOKEN}
-  - INSERT_KEY_HERE
+  - "null"
+  - "None"
+  - "undefined"
+  - "false"
+  - "true"
+  - "0"
+  - "n/a"
+  - "test"
+  - "demo"
+  - "admin"
+  - "root"
+  - "password"
+  - "12345"
+  - "qwerty"
+  - "changeme"
+  - "change_me"
+  - "your_password"
+  - "your_api_key"
+  - "your_key"
+  - "your-token"
+  - "example"
+  - "dummy"
+  - "fake"
+  - "sample"
+  - "placeholder"
+  - "localhost"
+  - "127.0.0.1"
+  - "root:root"
+  - "admin:admin"
+  - "user:password"
+  - "xxx"
+  - "<token>"
+  - "${TOKEN}"
+  - "${MY_SECRET}"
+  - "$SECRET"
+  - "%(secret)s"
+  - "INSERT_KEY_HERE"
 
+# Example/template paths — keep aligned with app/detection/noise.py and app/collectors/github_scoring.py.
 example_path_patterns:
   - ".env.example"
   - ".env.sample"
+  - ".env.template"
+  - ".env.tmpl"
+  - ".env.test"
+  - ".env.sandbox"
+  - ".env.local.example"
   - ".env.e2e.example"
+  - "example.env"
+  - "sample.env"
+  - "template.env"
   - "docker-compose.example.yml"
   - "README.md"
   - "docs/"
   - "examples/"
+  - "example/"
+  - "tutorial/"
+  - "demo/"
+  - "guide/"
+  - "boilerplate/"
+  - "starter/"
+  - "scaffold/"
+  - "skeleton/"
   - "test/"
   - "tests/"
   - "fixtures/"
+
+github_strong_suspicious_basenames:
+  - ".env"
+  - ".env.production"
+  - ".env.prod"
+  - ".env.live"
+  - ".env.staging"
+  - ".env.backup"
+  - ".env.bak"
+  - ".env.old"
+  - ".env.save"
+  - "credentials.json"
+  - "serviceaccount.json"
+  - "id_rsa"
+  - "private.key"
+  - "secrets.yml"
+  - "secrets.yaml"
+
+github_template_basenames:
+  - ".env.example"
+  - ".env.sample"
+  - ".env.template"
+  - ".env.tmpl"
+  - ".env.test"
+  - ".env.sandbox"
+  - ".env.local.example"
+  - "example.env"
+  - "sample.env"
+  - "template.env"
+
+github_template_path_markers:
+  - "example"
+  - "sample"
+  - "template"
+  - "tmpl"
+  - "test"
+  - "sandbox"
+  - "demo"
+  - "docs"
+  - "readme"
+  - "tutorial"
+  - "guide"
+  - "boilerplate"
+  - "starter"
+  - "scaffold"
+  - "skeleton"

@@ -6,6 +6,8 @@ const NAV = [
     { to: '/detections', label: 'Detection Center', icon: 'ti-shield-search' },
     { to: '/correlations', label: 'Correlations', icon: 'ti-affiliate' },
     { to: '/intelligence', label: 'Intelligence', icon: 'ti-report-analytics' },
+    { to: '/latest-scan', label: 'Latest Scan', icon: 'ti-radar-2' },
+    { to: '/live-scan-status', label: 'Live Scan Status', icon: 'ti-activity' },
   ]},
   { group: 'Sources', items: [
     { to: '/github', label: 'GitHub', icon: 'ti-brand-github' },

@@ -4,10 +4,11 @@ import { useCollectionRuns } from '../hooks/useCollectionRuns.js';
 import { useCollectionState } from '../hooks/useCollectionState.js';
 import { useDetections } from '../hooks/useDetections.js';
 import { useSourceHealth } from '../hooks/useSourceHealth.js';
-import { fmtDate, fmt, DetectionDrawer, DetectionCards, ErrorBanner, HealthCard, Loading, RunCard, truncate } from './_shared.jsx';
+import SourceRunPanel from '../components/scan/SourceRunPanel.jsx';
+import { fmtDate, fmt, DetectionDrawer, DetectionCards, DetectionPager, ErrorBanner, HealthCard, Loading, RunCard, truncate } from './_shared.jsx';
 
 export default function TelegramPage() {
-  const { refreshKey, setModalOpen } = useOutletContext();
+  const { refreshKey, refresh, setModalOpen } = useOutletContext();
   const [filters, setFilters] = useState({ source: 'telegram' });
   const [channel, setChannel] = useState('');
   const [selected, setSelected] = useState(null);
@@ -29,11 +30,13 @@ export default function TelegramPage() {
     if (!channel) return all;
     return all.filter((r) => String(r.channel_name || r.channel_username || '').toLowerCase().includes(channel.toLowerCase()));
   }, [detections.data, channel]);
+  const totalSignals = detections.data?.total ?? rows.length;
 
   const set = (key) => (e) => setFilters((f) => ({ ...f, [key]: e.target.value }));
 
   return (
     <div className="tg-page">
+      <SourceRunPanel source="telegram" onScanStarted={() => refresh?.()} />
       <style>{`
         .tg-page {
           padding: 14px 20px;
@@ -256,7 +259,7 @@ export default function TelegramPage() {
         </div>
         <div className="tg-stats-container">
           <div className="tg-stat-box">
-            <div className="tg-stat-value">{fmt(rows.length)}</div>
+            <div className="tg-stat-value">{fmt(totalSignals)}</div>
             <div className="tg-stat-label">Total Signals</div>
           </div>
           <div className="tg-stat-box">
@@ -275,7 +278,7 @@ export default function TelegramPage() {
               <div className="tg-panel-title">
                 <i className="ti ti-message-2"></i> Channel Activity Stream
               </div>
-              <span className="badge badge-outline" style={{ background: 'rgba(139, 92, 246, 0.1)', borderColor: 'rgba(139, 92, 246, 0.3)', color: '#a78bfa' }}>{fmt(rows.length)} matches</span>
+              <span className="badge badge-outline" style={{ background: 'rgba(139, 92, 246, 0.1)', borderColor: 'rgba(139, 92, 246, 0.3)', color: '#a78bfa' }}>{fmt(totalSignals)} total matches</span>
             </div>
             
             <div className="tg-filter-bar">
@@ -320,6 +323,11 @@ export default function TelegramPage() {
               {!detections.loading && (
                 <div style={{ padding: '24px' }}>
                   <DetectionCards detections={rows} onSelect={setSelected} />
+                  <DetectionPager
+                    data={detections.data}
+                    loadingMore={detections.loadingMore}
+                    onLoadMore={detections.loadMore}
+                  />
                 </div>
               )}
             </div>

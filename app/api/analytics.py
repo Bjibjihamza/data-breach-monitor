@@ -20,12 +20,16 @@ from app.schemas.analytics import (
 )
 from app.storage.elastic_client import (
     ElasticsearchUnavailableError,
+    MAX_DETECTION_LIST_LIMIT,
     get_analytics_charts,
     get_analytics_summary,
     get_analytics_timeline,
+    get_latest_scan_report,
     get_source_health,
     list_collection_runs,
+    list_latest_scan_detections,
 )
+from app.storage.local_data_exporter import local_data_export_status
 from app.storage.scan_status import get_all_scan_statuses
 
 
@@ -213,6 +217,42 @@ def analytics_collection_runs(
     return run_elasticsearch_endpoint(
         lambda: list_collection_runs(source=source, status=status, limit=limit),
         endpoint="/analytics/collection-runs",
+    )
+
+
+@router.get("/analytics/local-data-export")
+def analytics_local_data_export() -> dict[str, object]:
+    return local_data_export_status()
+
+
+@router.get("/analytics/latest-scan")
+def analytics_latest_scan(
+    scope: str = Query(default="latest_group", pattern="^(latest_group|latest_source)$"),
+) -> dict[str, object]:
+    return run_elasticsearch_endpoint(
+        lambda: get_latest_scan_report(scope=scope),
+        endpoint="/analytics/latest-scan",
+    )
+
+
+@router.get("/analytics/latest-scan/detections")
+def analytics_latest_scan_detections(
+    source: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=MAX_DETECTION_LIST_LIMIT),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, object]:
+    allowed_sources = {"github", "google_alerts", "telegram"}
+    if source and source not in allowed_sources:
+        raise HTTPException(status_code=400, detail=f"Invalid source: {source}")
+    return run_elasticsearch_endpoint(
+        lambda: list_latest_scan_detections(
+            source=source,
+            severity=severity,
+            limit=limit,
+            offset=offset,
+        ),
+        endpoint="/analytics/latest-scan/detections",
     )
 
 

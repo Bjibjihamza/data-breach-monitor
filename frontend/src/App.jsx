@@ -8,6 +8,8 @@ import CorrelationsPage from './pages/CorrelationsPage.jsx';
 import GitHubPage from './pages/GitHubPage.jsx';
 import GoogleAlertsPage from './pages/GoogleAlertsPage.jsx';
 import IntelligencePage from './pages/IntelligencePage.jsx';
+import LatestScanPage from './pages/LatestScanPage.jsx';
+import LiveScanStatusPage from './pages/LiveScanStatusPage.jsx';
 import OverviewPage from './pages/OverviewPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import SourceDiagnosticsPage from './pages/SourceDiagnosticsPage.jsx';
@@ -37,6 +39,8 @@ export default function App() {
           <Route path="detections" element={<AllDetectionsPage />} />
           <Route path="correlations" element={<CorrelationsPage />} />
           <Route path="intelligence" element={<IntelligencePage />} />
+          <Route path="latest-scan" element={<LatestScanPage />} />
+          <Route path="live-scan-status" element={<LiveScanStatusPage />} />
           <Route path="github" element={<GitHubPage />} />
           <Route path="google-alerts" element={<GoogleAlertsPage />} />
           <Route path="telegram" element={<TelegramPage />} />

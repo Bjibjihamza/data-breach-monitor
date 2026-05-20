@@ -31,6 +31,7 @@ ScanMode = Literal["backfill", "incremental"]
 
 INITIAL_BACKFILL_STATE_KEY = "initial_backfill_completed"
 LAST_RUN_STATE_KEY = "last_run"
+COLLECTOR_STATE_KEY = "collector"
 
 
 def normalize_scan_mode(value: str | None, *, default: str = DEFAULT_SCAN_MODE) -> str:

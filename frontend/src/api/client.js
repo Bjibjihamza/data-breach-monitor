@@ -8,13 +8,14 @@ export class ApiError extends Error {
 }
 
 function buildUrl(path, params = {}) {
-  const url = new URL(path, window.location.origin);
+  const apiBaseUrl = import.meta.env.VITE_API_URL || window.location.origin;
+  const url = new URL(path, apiBaseUrl);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
       url.searchParams.set(key, value);
     }
   });
-  return `${url.pathname}${url.search}`;
+  return url.toString();
 }
 
 export async function request(path, { method = 'GET', params, body } = {}) {

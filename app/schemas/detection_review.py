@@ -18,4 +18,7 @@ class DetectionListResponse(BaseModel):
     total: int
     limit: int
     offset: int = 0
+    has_more: bool = False
+    source: str | None = None
+    items: list[dict[str, object]] = Field(default_factory=list)
     detections: list[dict[str, object]] = Field(default_factory=list)

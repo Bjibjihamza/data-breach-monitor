@@ -21,7 +21,7 @@ import logging
 import threading
 from typing import Any
 
-from app.collectors.scan_modes import INITIAL_BACKFILL_STATE_KEY, SCAN_MODE_BACKFILL
+from app.collectors.scan_modes import COLLECTOR_STATE_KEY, INITIAL_BACKFILL_STATE_KEY, SCAN_MODE_BACKFILL
 from app.config import settings
 from app.storage.elastic_client import (
     ElasticsearchUnavailableError,
@@ -42,6 +42,9 @@ _started = False
 
 def _is_completed(source: str) -> bool:
     try:
+        collector_state = get_collection_state(source, COLLECTOR_STATE_KEY) or {}
+        if collector_state.get("first_run_completed"):
+            return True
         state = get_collection_state(source, INITIAL_BACKFILL_STATE_KEY) or {}
     except Exception as exc:
         logger.warning("Unable to read initial backfill state for %s: %s", source, exc.__class__.__name__)
@@ -172,16 +175,20 @@ def initial_backfill_status() -> dict[str, Any]:
     sources: dict[str, dict[str, Any]] = {}
     for source in _HUMAN_NAMES:
         try:
+            collector_state = get_collection_state(source, COLLECTOR_STATE_KEY) or {}
             state = get_collection_state(source, INITIAL_BACKFILL_STATE_KEY) or {}
         except Exception:
+            collector_state = {}
             state = {}
+        completed = bool(collector_state.get("first_run_completed") or state.get("completed"))
         sources[source] = {
-            "completed": bool(state.get("completed")),
-            "completed_at": state.get("completed_at") or "",
+            "completed": completed,
+            "completed_at": state.get("completed_at") or collector_state.get("last_successful_run_at") or "",
             "total_collected": int(state.get("total_collected") or 0),
             "total_indexed": int(state.get("total_indexed") or 0),
             "total_skipped_existing": int(state.get("total_skipped_existing") or 0),
             "stopped_reason": state.get("stopped_reason") or "",
+            "last_cursor": collector_state.get("last_cursor") or "",
             "enabled": _source_enabled(source),
             "name": _human(source),
         }

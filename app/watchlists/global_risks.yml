@@ -478,3 +478,165 @@ categories:
 
       - query: '"access_token" "token_secret" twitter NOT example'
         notes: "Twitter OAuth access tokens"
+
+  # ===========================================================================
+  # 11. MULTI-LANGUAGE HARDCODED CREDENTIALS
+  # ===========================================================================
+  language_hardcoded_credentials:
+    name: Multi-language hardcoded credentials
+    severity_hint: high
+    description: >
+      Database URIs and secret assignments in Go, Ruby, C#, Rust, and Swift source.
+    queries:
+      - query: '"mongodb://" password extension:go NOT localhost NOT example'
+        notes: "Go hardcoded MongoDB URI with credentials"
+
+      - query: '"postgres://" password extension:go NOT localhost NOT example'
+        notes: "Go hardcoded Postgres URI"
+
+      - query: '"mysql://" password extension:go NOT localhost NOT example'
+        notes: "Go hardcoded MySQL URI"
+
+      - query: '"DATABASE_URL" extension:rb NOT example NOT test'
+        notes: "Ruby database URL assignments"
+
+      - query: '"SECRET_KEY" extension:rb NOT example NOT test'
+        notes: "Ruby secret key assignments"
+
+      - query: '"API_KEY" extension:cs NOT example NOT test'
+        notes: "C# API key assignments"
+
+      - query: '"SECRET_KEY" extension:rs NOT example NOT test'
+        notes: "Rust secret key assignments"
+
+      - query: '"API_KEY" extension:swift NOT example NOT test'
+        notes: "Swift API key assignments"
+
+  # ===========================================================================
+  # 12. MODERN SAAS / PLATFORM TOKENS
+  # ===========================================================================
+  modern_saas_tokens:
+    name: Modern SaaS and platform API tokens
+    severity_hint: high
+    description: >
+      Prefix-based or env-named tokens for modern deployment and SaaS platforms.
+    queries:
+      - query: '"VERCEL_TOKEN" NOT example NOT your_'
+        notes: "Vercel deployment token"
+
+      - query: '"SUPABASE_SERVICE_ROLE_KEY" NOT example'
+        notes: "Supabase service role JWT/key"
+
+      - query: '"SUPABASE_DB_PASSWORD" NOT example NOT changeme'
+        notes: "Supabase database password"
+
+      - query: '"SUPABASE_ANON_KEY" NOT example'
+        notes: "Supabase anon key (lower risk but useful signal)"
+
+      - query: '"CLOUDFLARE_API_TOKEN" NOT example'
+        notes: "Cloudflare API token env assignment"
+
+      - query: '"CF_API_TOKEN" NOT example'
+        notes: "Cloudflare API token alternate name"
+
+      - query: '"DATABASE_URL" pscale NOT example NOT localhost'
+        notes: "PlanetScale database URL"
+
+      - query: '"PLANETSCALE_PASSWORD" NOT example NOT changeme'
+        notes: "PlanetScale password assignment"
+
+      - query: '"RAILWAY_TOKEN" NOT example'
+        notes: "Railway API token"
+
+      - query: '"RENDER_API_KEY" NOT example'
+        notes: "Render API key"
+
+      - query: '"LINEAR_API_KEY" NOT example'
+        notes: "Linear API key"
+
+      - query: '"NOTION_TOKEN" NOT example NOT your_'
+        notes: "Notion integration token"
+
+      - query: '"NOTION_API_KEY" NOT example NOT your_'
+        notes: "Notion API key alternate name"
+
+      - query: '"RESEND_API_KEY" NOT example'
+        notes: "Resend email API key"
+
+      - query: '"LOOPS_API_KEY" NOT example'
+        notes: "Loops.so API key"
+
+      - query: '"LEMONSQUEEZY_API_KEY" NOT example'
+        notes: "Lemon Squeezy API key"
+
+      - query: '"LEMON_SQUEEZY_API_KEY" NOT example'
+        notes: "Lemon Squeezy API key alternate spelling"
+
+  # ===========================================================================
+  # 13. KUBERNETES, CI/CD, AND CONTAINER BUILDS
+  # ===========================================================================
+  kubernetes_cicd_secrets:
+    name: Kubernetes, CI/CD, and container build secrets
+    severity_hint: high
+    description: >
+      Infrastructure manifests and CI configs with embedded credentials.
+    queries:
+      - query: 'kind:Secret filename:*.yaml "stringData:" NOT example'
+        notes: "Kubernetes Secret stringData block"
+
+      - query: 'kind:Secret filename:*.yml "stringData:" NOT example'
+        notes: "Kubernetes Secret stringData (yml)"
+
+      - query: 'kind:Secret filename:*.yaml "data:" NOT example'
+        notes: "Kubernetes Secret base64 data block"
+
+      - query: 'filename:.github/workflows "secrets." password NOT example'
+        notes: "GitHub Actions workflow secret reference context"
+
+      - query: 'filename:.github/workflows "env:" "TOKEN" NOT example'
+        notes: "GitHub Actions env token assignment"
+
+      - query: 'filename:.github/workflows "AWS_ACCESS_KEY_ID" NOT example'
+        notes: "GitHub Actions AWS key exposure"
+
+      - query: 'filename:Dockerfile "ENV" "PASSWORD" NOT example NOT changeme'
+        notes: "Dockerfile ENV password"
+
+      - query: 'filename:Dockerfile "ENV" "TOKEN" NOT example NOT changeme'
+        notes: "Dockerfile ENV token"
+
+      - query: 'filename:Dockerfile "ARG" "SECRET" NOT example NOT changeme'
+        notes: "Dockerfile ARG secret"
+
+      - query: 'filename:.gitlab-ci.yml "TOKEN" NOT example'
+        notes: "GitLab CI token assignment"
+
+      - query: 'filename:circle.yml "TOKEN" NOT example'
+        notes: "CircleCI token in config"
+
+      - query: 'filename:azure-pipelines.yml "TOKEN" NOT example'
+        notes: "Azure Pipelines token assignment"
+
+  # ===========================================================================
+  # 14. MOBILE APP CONFIG SECRETS
+  # ===========================================================================
+  mobile_app_secrets:
+    name: Mobile application config secrets
+    severity_hint: medium
+    description: >
+      Android and iOS config files that may embed API keys or SDK identifiers.
+    queries:
+      - query: 'filename:google-services.json "api_key" NOT example'
+        notes: "Firebase/Android google-services.json API key"
+
+      - query: 'filename:google-services.json "mobilesdk_app_id" NOT example'
+        notes: "Firebase mobile SDK app id (supporting signal)"
+
+      - query: 'filename:GoogleService-Info.plist "API_KEY" NOT example'
+        notes: "iOS Firebase plist API key"
+
+      - query: 'filename:*.xcconfig "API_KEY" NOT example'
+        notes: "Xcode xcconfig API key"
+
+      - query: 'filename:*.xcconfig "TOKEN" NOT example'
+        notes: "Xcode xcconfig token"

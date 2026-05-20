@@ -10,6 +10,7 @@ import requests
 
 from app.collectors.github_content import fetch_repository_file_content
 from app.collectors.scan_modes import (
+    COLLECTOR_STATE_KEY,
     SCAN_MODE_BACKFILL,
     SCAN_MODE_INCREMENTAL,
     is_backfill,
@@ -27,6 +28,7 @@ GITHUB_CODE_SEARCH_URL = "https://api.github.com/search/code"
 GITHUB_PER_PAGE_LIMIT = 100
 INCREMENTAL_KNOWN_RATIO_STOP = 0.8
 INCREMENTAL_KNOWN_STREAK_STOP = 5
+GITHUB_STATE_LIST_LIMIT = 5000
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +49,10 @@ class GitHubCollectionStats:
     stopped_reason: str = ""
     scan_mode: str = SCAN_MODE_INCREMENTAL
     max_items_per_run: int = 0
+    last_cursor: str = ""
+    seen_item_keys: list[str] = field(default_factory=list)
+    known_item_keys: int = 0
+    errors: int = 0
     query_stats: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -77,6 +83,16 @@ def _global_max_items(scan_mode: str) -> int:
     if is_backfill(scan_mode):
         return max(1, settings.INITIAL_BACKFILL_MAX_ITEMS_PER_SOURCE)
     return max(1, settings.GITHUB_INCREMENTAL_MAX_ITEMS)
+
+
+def _github_item_key(item: dict[str, Any]) -> str:
+    repository = item.get("repository") or {}
+    repo_name = str(repository.get("full_name") or "")
+    file_path = str(item.get("path") or "")
+    sha = str(item.get("sha") or "")
+    html_url = str(item.get("html_url") or "")
+    key = "|".join(part for part in (repo_name, file_path, sha) if part)
+    return key or html_url
 
 
 def _query_window(all_query_specs: list[Any], max_queries: int) -> tuple[list[Any], int, int, int]:
@@ -128,6 +144,7 @@ def _build_event(
     risk_category: str,
     file_content: str,
     *,
+    item_key: str,
     scan_mode: str,
 ) -> dict[str, Any]:
     repository = item.get("repository") or {}
@@ -154,6 +171,8 @@ def _build_event(
             "risk_category": risk_category,
             "repository": repo_name,
             "file_path": file_path,
+            "item_key": item_key,
+            "item_sha": item.get("sha") or "",
             "html_url": html_url,
             "scan_mode": scan_mode,
         },
@@ -176,6 +195,10 @@ def _build_stats(
     stopped_reason: str,
     scan_mode: str,
     max_items: int,
+    last_cursor: str,
+    seen_item_keys: list[str],
+    known_item_keys: int,
+    errors: int,
     query_stats: list[dict[str, Any]] | None = None,
 ) -> GitHubCollectionStats:
     return GitHubCollectionStats(
@@ -193,6 +216,10 @@ def _build_stats(
         stopped_reason=stopped_reason,
         scan_mode=scan_mode,
         max_items_per_run=max_items,
+        last_cursor=last_cursor,
+        seen_item_keys=seen_item_keys[:GITHUB_STATE_LIST_LIMIT],
+        known_item_keys=known_item_keys,
+        errors=errors,
         query_stats=query_stats or [],
     )
 
@@ -213,6 +240,14 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
         "X-GitHub-Api-Version": "2022-11-28",
     }
     events: list[dict[str, Any]] = []
+    collector_state = get_collection_state("github", COLLECTOR_STATE_KEY)
+    state_seen_items = collector_state.get("seen_item_keys")
+    known_item_key_set = {
+        str(item)
+        for item in state_seen_items
+        if item
+    } if isinstance(state_seen_items, list) else set()
+    previous_cursor = str(collector_state.get("last_cursor") or "")
     max_results = _max_results_per_query()
     max_queries = _max_queries_per_run()
     max_file_fetches = _max_file_fetches_per_run()
@@ -236,17 +271,22 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
     pages_processed = 0
     results_seen = 0
     seen_urls: list[str] = []
+    processed_item_keys: list[str] = []
+    known_item_keys = 0
+    collector_errors = 0
     incremental_known_streak = 0
     stopped_reason = ""
     query_stats: list[dict[str, Any]] = []
 
     logger.info(
         (
-            "[github] mode=%s max_items_per_run=%s window=%s-%s/%s "
+            "[github] mode=%s max_items_per_run=%s cursor=%s known_items=%s window=%s-%s/%s "
             "(max_queries_per_run=%s, max_results_per_query=%s, max_pages_per_query=%s, max_file_fetches_per_run=%s)."
         ),
         scan_mode,
         global_max_items,
+        previous_cursor or "none",
+        len(known_item_key_set),
         window_start,
         window_end,
         len(all_query_specs),
@@ -278,6 +318,10 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
             stopped_reason=reason or stopped_reason,
             scan_mode=scan_mode,
             max_items=global_max_items,
+            last_cursor=processed_item_keys[0] if processed_item_keys else previous_cursor,
+            seen_item_keys=processed_item_keys,
+            known_item_keys=known_item_keys,
+            errors=collector_errors,
             query_stats=query_stats,
         )
         return GitHubCollectionResult(events=events, stats=stats, seen_urls=seen_urls)
@@ -311,11 +355,18 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
             if remaining <= 0:
                 break
 
-            params = {"q": query, "per_page": min(per_page, remaining), "page": page}
+            params = {
+                "q": query,
+                "per_page": min(per_page, remaining),
+                "page": page,
+                "sort": "indexed",
+                "order": "desc",
+            }
             try:
                 response = requests.get(GITHUB_CODE_SEARCH_URL, headers=headers, params=params, timeout=20)
             except requests.RequestException as exc:
                 query_errors += 1
+                collector_errors += 1
                 logger.warning(
                     "GitHub API request failed for configured query #%s page %s: %s",
                     query_index,
@@ -331,6 +382,7 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
 
             if response.status_code >= 400:
                 query_errors += 1
+                collector_errors += 1
                 logger.warning(
                     "GitHub API error for configured query #%s page %s: HTTP %s: %s",
                     query_index,
@@ -344,6 +396,7 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
                 payload = response.json()
             except ValueError:
                 query_errors += 1
+                collector_errors += 1
                 logger.warning(
                     "GitHub API error for configured query #%s page %s: invalid JSON response.",
                     query_index,
@@ -354,6 +407,7 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
             items = payload.get("items", [])
             if not isinstance(items, list):
                 query_errors += 1
+                collector_errors += 1
                 logger.warning("GitHub API error for configured query #%s page %s: items was not a list.", query_index, page)
                 break
             pages_processed += 1
@@ -424,12 +478,34 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
                     return _finalize(rate_limited=False, reason=stopped_reason)
 
                 html_url = str(item.get("html_url") or "")
+                item_key = _github_item_key(item)
                 if html_url:
                     seen_urls.append(html_url)
+                if scan_mode == SCAN_MODE_INCREMENTAL and item_key and item_key in known_item_key_set:
+                    skipped_existing += 1
+                    query_skipped_existing += 1
+                    known_item_keys += 1
+                    incremental_known_streak += 1
+                    processed_item_keys.append(item_key)
+                    logger.debug("[github] skip known item key=%s", item_key)
+                    if incremental_known_streak >= INCREMENTAL_KNOWN_STREAK_STOP:
+                        stopped_reason = "incremental_state_watermark_reached"
+                        logger.info(
+                            "[github] mode=%s stop reason=%s streak=%s cursor=%s",
+                            scan_mode,
+                            stopped_reason,
+                            incremental_known_streak,
+                            previous_cursor or "none",
+                        )
+                        return _finalize(rate_limited=False, reason=stopped_reason)
+                    continue
                 if html_url and detection_exists_by_source_url(html_url):
                     skipped_existing += 1
                     query_skipped_existing += 1
                     incremental_known_streak += 1
+                    known_item_keys += 1
+                    if item_key:
+                        processed_item_keys.append(item_key)
                     logger.debug(
                         "[github] skip existing url=%s (mode=%s)", html_url, scan_mode,
                     )
@@ -465,8 +541,18 @@ def collect_github_events_with_stats(scan_mode: str | None = None) -> GitHubColl
                     continue
 
                 events.append(
-                    _build_event(item, query, organization, risk_category, file_content, scan_mode=scan_mode)
+                    _build_event(
+                        item,
+                        query,
+                        organization,
+                        risk_category,
+                        file_content,
+                        item_key=item_key,
+                        scan_mode=scan_mode,
+                    )
                 )
+                if item_key:
+                    processed_item_keys.append(item_key)
                 query_events += 1
 
             if len(items) < params["per_page"]:
